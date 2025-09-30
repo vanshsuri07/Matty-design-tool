@@ -32,6 +32,7 @@ const CanvasEditor = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [designData, setDesignData] = useState(null);
   const [activeTool, setActiveTool] = useState("move");
+  const [copiedObject, setCopiedObject] = useState(null);
   useEffect(() => {
     if (!canvasRef.current) return;
     const fabricCanvas = new Canvas(canvasRef.current, {
@@ -72,6 +73,11 @@ const CanvasEditor = () => {
     fetchDesign();
   }, [canvas, id]);
 
+  useEffect(() => {
+    if (!canvas) return;
+    canvas.isDrawingMode = activeTool === "pen";
+  }, [activeTool, canvas]);
+
   const saveHistory = () => {
     if (!canvas) return;
     const json = JSON.stringify(canvas.toJSON());
@@ -79,8 +85,11 @@ const CanvasEditor = () => {
     setHistoryStep((prev) => prev + 1);
   };
 
+  const handleToolChange = (tool) => {
+    setActiveTool(tool);
+  };
+
   const handleAction = (action) => {
-    // If the action is a tool selection, update the active tool state
     const tools = [
       "move",
       "rectangle",
@@ -91,7 +100,8 @@ const CanvasEditor = () => {
       "frame",
     ];
     if (tools.includes(action)) {
-      setActiveTool(action);
+      handleToolChange(action);
+      return;
     }
 
     if (!canvas) return;
@@ -171,6 +181,20 @@ const CanvasEditor = () => {
         canvas.add(line);
         canvas.setActiveObject(line);
         break;
+      case "frame":
+        const frame = new Rect({
+          left: 100,
+          top: 100,
+          width: 300,
+          height: 200,
+          fill: "transparent",
+          stroke: "#000000",
+          strokeWidth: 2,
+          strokeDashArray: [5, 5],
+        });
+        canvas.add(frame);
+        canvas.setActiveObject(frame);
+        break;
 
       case "image":
         fileInputRef.current?.click();
@@ -196,16 +220,22 @@ const CanvasEditor = () => {
 
       case "copy":
         if (selectedObject) {
-          selectedObject
-            .clone()
-            .then((cloned) => {
-              const json = JSON.stringify(cloned.toJSON());
-              navigator.clipboard.writeText(json);
-              console.log("Object copied to clipboard:", json);
-            })
-            .catch((err) => {
-              console.error("Clone failed:", err);
+          selectedObject.clone((cloned) => {
+            setCopiedObject(cloned);
+          });
+        }
+        break;
+      case "paste":
+        if (copiedObject) {
+          copiedObject.clone((cloned) => {
+            cloned.set({
+              left: cloned.left + 20,
+              top: cloned.top + 20,
             });
+            canvas.add(cloned);
+            canvas.setActiveObject(cloned);
+            canvas.renderAll();
+          });
         }
         break;
 
@@ -448,6 +478,7 @@ const CanvasEditor = () => {
           activeTool={activeTool}
           canUndo={historyStep > 0}
           canRedo={historyStep < history.length - 1}
+          canPaste={!!copiedObject}
         />
 
         {/* Optional Layers Panel */}

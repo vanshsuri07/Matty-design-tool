@@ -15,9 +15,18 @@ import {
   Eraser,
   Settings,
   RectangleHorizontal,
+  Copy,
+  Clipboard,
 } from "lucide-react";
 
-const Toolbar = ({ onAction, hasSelection, activeTool, canUndo, canRedo }) => {
+const Toolbar = ({
+  onAction,
+  hasSelection,
+  activeTool,
+  canUndo,
+  canRedo,
+  canPaste,
+}) => {
   const [openDropdown, setOpenDropdown] = useState(null);
   const dropdownRef = useRef(null);
 
@@ -75,6 +84,18 @@ const Toolbar = ({ onAction, hasSelection, activeTool, canUndo, canRedo }) => {
           disabled: !canRedo,
         },
         {
+          name: "copy",
+          icon: Copy,
+          tooltip: "Copy (⌘C)",
+          disabled: !hasSelection,
+        },
+        {
+          name: "paste",
+          icon: Clipboard,
+          tooltip: "Paste (⌘V)",
+          disabled: !canPaste,
+        },
+        {
           name: "delete",
           icon: Trash2,
           tooltip: "Delete (Del)",
@@ -106,6 +127,7 @@ const Toolbar = ({ onAction, hasSelection, activeTool, canUndo, canRedo }) => {
       <button
         onClick={() => handleAction(tool.name)}
         disabled={tool.disabled}
+        data-testid={`toolbar-button-${tool.name}`}
         className={`w-14 h-14 flex items-center justify-center rounded-xl transition-all duration-200 ${
           activeTool === tool.name
             ? "bg-indigo-100 text-indigo-600 shadow-inner"
@@ -137,6 +159,7 @@ const Toolbar = ({ onAction, hasSelection, activeTool, canUndo, canRedo }) => {
       <div className="relative group">
         <button
           onClick={() => handleDropdownClick(tool.name)}
+          data-testid={`toolbar-button-${tool.name}`}
           className={`w-14 h-14 flex items-center justify-center rounded-xl transition-all duration-200 ${
             openDropdown === tool.name ||
             tool.subItems.some((item) => item.name === activeTool)

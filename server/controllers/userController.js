@@ -10,8 +10,10 @@ const generateToken = (id) => {
 // REGISTER
 exports.registerUser = async (req, res) => {
   const { fullName, email, password } = req.body;
+  console.log("Registering user with data:", { fullName, email });
 
   if (!fullName || !email || !password) {
+    console.log("Registration failed: Missing fields.");
     return res
       .status(400)
       .json({ success: false, message: "Please fill all fields" });
@@ -20,12 +22,15 @@ exports.registerUser = async (req, res) => {
   try {
     const existingUser = await User.findOne({ email });
     if (existingUser) {
+      console.log("Registration failed: User already exists.");
       return res
         .status(400)
         .json({ success: false, message: "User already exists" });
     }
 
+    console.log("Creating new user...");
     const user = await User.create({ fullName, email, password });
+    console.log("User created successfully:", user._id);
 
     return res.status(201).json({
       success: true, // ✅ added
