@@ -13,15 +13,20 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem("token"));
-  const [loading, setLoading] = useState(false);
+  const [token, setToken] = useState(null);
+  const [loading, setLoading] = useState(true); // start loading = true
 
   useEffect(() => {
     const savedUser = localStorage.getItem("user");
-    if (savedUser && token) {
+    const savedToken = localStorage.getItem("token");
+
+    if (savedUser && savedToken) {
       setUser(JSON.parse(savedUser));
+      setToken(savedToken);
     }
-  }, [token]);
+
+    setLoading(false); // ✅ done initializing
+  }, []);
 
   const login = async (email, password) => {
     try {
@@ -34,10 +39,9 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem("user", JSON.stringify(user));
         setToken(token);
         setUser(user);
-        return { success: true, data: response.data }; // ✅ always return something
+        return { success: true, data: response.data };
       }
 
-      // ✅ handle non-success explicitly
       return {
         success: false,
         message: response.data.message || "Login failed",
@@ -63,10 +67,9 @@ export const AuthProvider = ({ children }) => {
         localStorage.setItem("user", JSON.stringify(user));
         setToken(token);
         setUser(user);
-        return { success: true, data: response.data }; // ✅ success path
+        return { success: true, data: response.data };
       }
 
-      // ✅ explicitly handle failure if `success` is false
       return {
         success: false,
         message: response.data.message || "Registration failed",

@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const API_URL = "http://localhost:5000/api/users";
+const API_URL = "http://localhost:5000/api/";
 
 // Create axios instance
 const api = axios.create({
@@ -31,8 +31,8 @@ api.interceptors.response.use(
 
 // Auth endpoints
 export const authAPI = {
-  register: (userData) => api.post("/register", userData),
-  login: (userData) => api.post("/login", userData),
+  register: (userData) => api.post("/users/register", userData),
+  login: (userData) => api.post("/users/login", userData),
 };
 
 // Design endpoints
