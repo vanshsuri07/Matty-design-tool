@@ -52,32 +52,49 @@ const getDesignById = async (req, res) => {
 // Create new design
 const createDesign = async (req, res) => {
   try {
-    const { title, jsonData, thumbnailUrl } = req.body;
+    const { fromTemplate, content, title, jsonData, thumbnailUrl } = req.body;
 
-    if (!title || !jsonData) {
-      return res.status(400).json({
-        success: false,
-        message: "Title and design data are required",
+    let newDesign;
+
+    if (fromTemplate && content) {
+      // Case 1: Create from template
+      newDesign = new Design({
+        userId: req.user._id,
+        title: title || "Untitled Design",
+        jsonData: content, // template JSON
+        thumbnailUrl: thumbnailUrl || "",
+        source: "template",
+        createdAt: new Date(),
+      });
+    } else {
+      // Case 2: Normal design creation
+      if (!title || !jsonData) {
+        return res.status(400).json({
+          success: false,
+          message: "Title and design data are required",
+        });
+      }
+
+      newDesign = new Design({
+        userId: req.user._id,
+        title: title.trim(),
+        jsonData,
+        thumbnailUrl: thumbnailUrl || "",
+        source: "blank",
+        createdAt: new Date(),
       });
     }
 
-    const newDesign = new Design({
-      userId: req.user._id,
-      title: title.trim(),
-      jsonData,
-      thumbnailUrl: thumbnailUrl || "",
-      createdAt: new Date(),
-    });
-
     const savedDesign = await newDesign.save();
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       message: "Design created successfully",
       design: savedDesign,
     });
   } catch (error) {
-    res.status(500).json({
+    console.error("Error creating design:", error);
+    return res.status(500).json({
       success: false,
       message: "Error creating design",
       error: error.message,
