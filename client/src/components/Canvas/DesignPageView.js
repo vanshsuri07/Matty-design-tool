@@ -17,7 +17,6 @@ const DesignViewPage = () => {
   useEffect(() => {
     if (!canvasRef.current) return;
 
-    // Prevent double initialization
     if (fabricCanvasRef.current) {
       console.log("Canvas already initialized");
       return;
@@ -43,7 +42,7 @@ const DesignViewPage = () => {
         fabricCanvasRef.current = null;
       }
     };
-  }, [canvasRef.current]);
+  }, []); // 👈 run once only
 
   // Fetch design
   useEffect(() => {
