@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Canvas, FabricImage } from "fabric"; // ✅ FIX: import from fabric, not { Canvas }
+import { Canvas, FabricImage } from "fabric";
 import { ArrowLeft } from "lucide-react";
 import { designAPI } from "../../services/api";
 
@@ -8,101 +8,188 @@ const DesignViewPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const canvasRef = useRef(null);
-  const [canvas, setCanvas] = useState(null);
+  const fabricCanvasRef = useRef(null);
   const [design, setDesign] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Initialize canvas
+  // Initialize canvas once
   useEffect(() => {
     if (!canvasRef.current) return;
 
+    // Prevent double initialization
+    if (fabricCanvasRef.current) {
+      console.log("Canvas already initialized");
+      return;
+    }
+
+    console.log("Initializing canvas...");
+
     const fabricCanvas = new Canvas(canvasRef.current, {
+      width: 800,
+      height: 600,
       backgroundColor: "#ffffff",
       selection: false,
+      renderOnAddRemove: true,
     });
 
-    setCanvas(fabricCanvas);
+    fabricCanvasRef.current = fabricCanvas;
+    console.log("✓ Canvas initialized");
 
-    return () => fabricCanvas.dispose();
-  }, []);
+    return () => {
+      if (fabricCanvasRef.current) {
+        console.log("Disposing canvas");
+        fabricCanvasRef.current.dispose();
+        fabricCanvasRef.current = null;
+      }
+    };
+  }, [canvasRef.current]);
 
   // Fetch design
   useEffect(() => {
     const fetchDesign = async () => {
       try {
         setLoading(true);
+        setError(null);
+
+        console.log("Fetching design with ID:", id);
         const { data } = await designAPI.getPublicDesign(id);
+
+        console.log("API Response:", data);
 
         if (!data.success) {
           setError(data.message || "Failed to load design");
           return;
         }
 
+        console.log("Design data:", data.design);
         setDesign(data.design);
       } catch (err) {
         console.error("Error fetching design:", err);
-        setError("Failed to load design");
+        setError(err.response?.data?.message || "Failed to load design");
       } finally {
         setLoading(false);
       }
     };
 
-    fetchDesign();
+    if (id) {
+      fetchDesign();
+    }
   }, [id]);
 
   // Load design into canvas
   useEffect(() => {
-    if (!canvas || !design) return;
+    // Wait for both canvas AND design to be ready
+    if (!fabricCanvasRef.current || !design) {
+      console.log("Waiting for canvas and design:", {
+        canvas: !!fabricCanvasRef.current,
+        design: !!design,
+      });
+      return;
+    }
+
+    const canvas = fabricCanvasRef.current;
+    console.log("Loading design into canvas...");
 
     try {
-      // Resize + background
-      canvas.setWidth(design.width || 800);
-      canvas.setHeight(design.height || 600);
-      canvas.setBackgroundColor(design.backgroundColor || "#ffffff", () =>
-        canvas.renderAll()
-      );
-
-      // Ensure JSON is parsed correctly
+      // Parse JSON data if it's a string
       let jsonData = design.jsonData;
       if (typeof jsonData === "string") {
+        console.log("Parsing JSON string...");
         jsonData = JSON.parse(jsonData);
       }
-      canvas.loadFromJSON(jsonData, () => canvas.renderAll());
 
+      console.log("JSON Data:", jsonData);
+      console.log("Objects count:", jsonData?.objects?.length || 0);
+
+      // Set canvas dimensions
+      const width = design.width || jsonData?.width || 800;
+      const height = design.height || jsonData?.height || 600;
+      const bgColor =
+        design.backgroundColor || jsonData?.background || "#ffffff";
+
+      console.log("Setting canvas size:", { width, height, bgColor });
+
+      canvas.setWidth(width);
+      canvas.setHeight(height);
+      // canvas.setBackgroundColor(bgColor, () => canvas.renderAll());
+
+      // Clear canvas before loading
+      canvas.clear();
+
+      // Load JSON data
       if (jsonData && jsonData.objects && jsonData.objects.length > 0) {
-        canvas.loadFromJSON(jsonData, () => {
-          // Disable all interactions
-          canvas.forEachObject((obj) => {
-            obj.selectable = false;
-            obj.evented = false;
-          });
-          canvas.renderAll();
-        });
+        console.log("Loading objects from JSON...");
+
+        canvas.loadFromJSON(
+          jsonData,
+          () => {
+            console.log("JSON loaded, disabling interactions...");
+
+            // Disable all interactions
+            canvas.selection = false;
+            canvas.forEachObject((obj) => {
+              obj.selectable = false;
+              obj.evented = false;
+              obj.hasControls = false;
+              obj.hasBorders = false;
+            });
+
+            // Block selections after load
+            canvas.on("selection:created", () => canvas.discardActiveObject());
+            canvas.on("selection:updated", () => canvas.discardActiveObject());
+
+            canvas.requestRenderAll();
+            console.log("✓ Design loaded successfully!");
+          },
+          (o, object) => {
+            console.log("Loading object:", object.type);
+          }
+        );
       } else {
-        console.warn("No objects in design JSON → showing fallback thumbnail");
+        console.warn("No objects in design JSON");
 
         // Fallback: show thumbnail as image if JSON is empty
         if (design.thumbnailUrl) {
-          FabricImage.fromURL(design.thumbnailUrl, (img) => {
-            canvas.add(img);
-            canvas.centerObject(img);
-            img.selectable = false;
-            canvas.renderAll();
-          });
+          console.log("Loading thumbnail fallback...");
+          FabricImage.fromURL(design.thumbnailUrl, {
+            crossOrigin: "anonymous",
+          })
+            .then((img) => {
+              const scale = Math.min(width / img.width, height / img.height);
+              img.scale(scale);
+
+              canvas.add(img);
+              canvas.centerObject(img);
+              img.selectable = false;
+              img.evented = false;
+              canvas.requestRenderAll();
+              console.log("✓ Thumbnail loaded as fallback");
+            })
+            .catch((err) => {
+              console.error("Failed to load thumbnail:", err);
+            });
+        } else {
+          console.error("No thumbnail available for fallback");
         }
       }
     } catch (err) {
       console.error("Error loading design JSON:", err);
+      setError("Failed to render design");
     }
-  }, [canvas, design]);
+  }, [fabricCanvasRef.current, design]);
 
   // Export as PNG
   const handleExport = () => {
-    if (!canvas) return alert("Canvas not ready yet");
+    const canvas = fabricCanvasRef.current;
+    if (!canvas) {
+      alert("Canvas not ready yet");
+      return;
+    }
 
     try {
-      canvas.renderAll();
+      canvas.requestRenderAll();
+
       const dataURL = canvas.toDataURL({
         format: "png",
         quality: 1.0,
@@ -115,6 +202,8 @@ const DesignViewPage = () => {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+
+      console.log("✓ Design exported successfully");
     } catch (error) {
       console.error("Export error:", error);
       alert("Failed to export design. Please try again.");
@@ -168,7 +257,7 @@ const DesignViewPage = () => {
             </button>
             <div>
               <h1 className="text-xl font-semibold text-slate-800">
-                {design.title}
+                {design?.title || "Untitled Design"}
               </h1>
               <p className="text-sm text-slate-500">View-only mode</p>
             </div>
@@ -183,8 +272,8 @@ const DesignViewPage = () => {
       </div>
 
       {/* Canvas */}
-      <div className="flex-1 flex items-center justify-center p-8">
-        <div className="bg-white rounded-lg shadow-lg">
+      <div className="flex-1 flex items-center justify-center p-8 overflow-auto">
+        <div className="bg-white rounded-lg shadow-lg p-4">
           <canvas ref={canvasRef} className="border border-slate-300" />
         </div>
       </div>
