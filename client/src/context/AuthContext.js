@@ -30,23 +30,29 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      const response = await authAPI.login(email, password);
-      const { token, user } = response.data;
+      setLoading(true);
+      const response = await authAPI.login({ email, password });
 
-      localStorage.setItem("token", token);
+      if (response.data.success) {
+        const { token, user } = response.data;
+        localStorage.setItem("token", token);
+        localStorage.setItem("user", JSON.stringify(user));
+        setToken(token);
+        setUser(user);
+        return { success: true, data: response.data };
+      }
 
-      // Ensure user has _id field
-      const userData = {
-        _id: user._id || user.id, // Support both formats
-        id: user.id || user._id,
-        fullName: user.fullName,
-        email: user.email,
-        ...user,
+      return {
+        success: false,
+        message: response.data.message || "Login failed",
       };
-
-      setUser(userData);
     } catch (error) {
-      throw error;
+      return {
+        success: false,
+        message: error.response?.data?.message || "Login failed",
+      };
+    } finally {
+      setLoading(false);
     }
   };
 
