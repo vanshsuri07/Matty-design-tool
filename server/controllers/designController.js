@@ -1,17 +1,11 @@
 const Design = require("../models/Design");
 const User = require("../models/User");
 
-// Get all designs for authenticated user
+// Get all designs (keep as is)
 const getDesigns = async (req, res) => {
   try {
-    const designs = await Design.find({ userId: req.user._id })
-      .sort({ createdAt: -1 })
-      .select("title thumbnailUrl createdAt");
-
-    res.json({
-      success: true,
-      designs,
-    });
+    const designs = await Design.find();
+    res.json({ success: true, designs });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -21,26 +15,67 @@ const getDesigns = async (req, res) => {
   }
 };
 
-// Get single design by ID
+// Get designs by userId - FIXED
+const getDesignsByUserId = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized: User not found.",
+      });
+    }
+
+    const designs = await Design.find({ userId: userId }).sort({
+      createdAt: -1,
+    });
+
+    console.log(`Found ${designs.length} designs for user ${userId}`);
+
+    res.status(200).json({
+      success: true,
+      designs: designs,
+    });
+  } catch (error) {
+    console.error("Error fetching designs by user ID:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error: Could not fetch designs.",
+    });
+  }
+};
+
+// Get single design by ID - FIXED
 const getDesignById = async (req, res) => {
   try {
+    const userId = req.user._id;
+
+    console.log("Fetching design:", {
+      designId: req.params.id,
+      userId: String(userId),
+    });
+
     const design = await Design.findOne({
       _id: req.params.id,
-      userId: req.user._id,
+      userId: userId,
     });
 
     if (!design) {
       return res.status(404).json({
         success: false,
-        message: "Design not found",
+        message: "Design not found or you don't have permission",
       });
     }
+
+    console.log("Design found and returned");
 
     res.json({
       success: true,
       design,
     });
   } catch (error) {
+    console.error("Error in getDesignById:", error);
     res.status(500).json({
       success: false,
       message: "Error fetching design",
@@ -49,25 +84,25 @@ const getDesignById = async (req, res) => {
   }
 };
 
-// Create new design
+// Create design - FIXED
 const createDesign = async (req, res) => {
   try {
     const { fromTemplate, content, title, jsonData, thumbnailUrl } = req.body;
+    const userId = req.user._id;
 
     let newDesign;
 
     if (fromTemplate && content) {
-      // Case 1: Create from template
       newDesign = new Design({
-        userId: req.user._id,
+        userId: userId,
         title: title || "Untitled Design",
-        jsonData: content, // template JSON
+        jsonData: content,
         thumbnailUrl: thumbnailUrl || "",
         source: "template",
+        access: "private",
         createdAt: new Date(),
       });
     } else {
-      // Case 2: Normal design creation
       if (!title || !jsonData) {
         return res.status(400).json({
           success: false,
@@ -76,11 +111,12 @@ const createDesign = async (req, res) => {
       }
 
       newDesign = new Design({
-        userId: req.user._id,
+        userId: userId,
         title: title.trim(),
         jsonData,
         thumbnailUrl: thumbnailUrl || "",
         source: "blank",
+        access: "private",
         createdAt: new Date(),
       });
     }
@@ -102,15 +138,16 @@ const createDesign = async (req, res) => {
   }
 };
 
-// Update existing design
+// Update design - FIXED
 const updateDesign = async (req, res) => {
   try {
     const { title, jsonData, thumbnailUrl } = req.body;
     const designId = req.params.id;
+    const userId = req.user._id;
 
     const design = await Design.findOne({
       _id: designId,
-      userId: req.user._id,
+      userId: userId,
     });
 
     if (!design) {
@@ -120,7 +157,6 @@ const updateDesign = async (req, res) => {
       });
     }
 
-    // Update fields if provided
     if (title) design.title = title.trim();
     if (jsonData) design.jsonData = jsonData;
     if (thumbnailUrl) design.thumbnailUrl = thumbnailUrl;
@@ -141,14 +177,15 @@ const updateDesign = async (req, res) => {
   }
 };
 
-// Delete design
+// Delete design - FIXED
 const deleteDesign = async (req, res) => {
   try {
     const designId = req.params.id;
+    const userId = req.user._id;
 
     const design = await Design.findOneAndDelete({
       _id: designId,
-      userId: req.user._id,
+      userId: userId,
     });
 
     if (!design) {
@@ -171,12 +208,14 @@ const deleteDesign = async (req, res) => {
   }
 };
 
-// Duplicate design
+// Duplicate design - FIXED
 const duplicateDesign = async (req, res) => {
   try {
+    const userId = req.user._id;
+
     const originalDesign = await Design.findOne({
       _id: req.params.id,
-      userId: req.user._id,
+      userId: userId,
     });
 
     if (!originalDesign) {
@@ -187,10 +226,11 @@ const duplicateDesign = async (req, res) => {
     }
 
     const duplicatedDesign = new Design({
-      userId: req.user._id,
+      userId: userId,
       title: `${originalDesign.title} - Copy`,
       jsonData: originalDesign.jsonData,
       thumbnailUrl: originalDesign.thumbnailUrl,
+      access: "private",
       createdAt: new Date(),
     });
 
@@ -210,13 +250,54 @@ const duplicateDesign = async (req, res) => {
   }
 };
 
-// Export design as image (placeholder for canvas export logic)
-const exportDesign = async (req, res) => {
+// Update design access - FIXED
+const updateDesignAccess = async (req, res) => {
   try {
+    const { id } = req.params;
+    const { access } = req.body;
+    const userId = req.user._id;
+
+    if (!["private", "public"].includes(access)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid access value. Must be 'private' or 'public'",
+      });
+    }
+
     const design = await Design.findOne({
-      _id: req.params.id,
-      userId: req.user._id,
+      _id: id,
+      userId: userId,
     });
+
+    if (!design) {
+      return res.status(404).json({
+        success: false,
+        message: "Design not found or you don't have permission",
+      });
+    }
+
+    design.access = access;
+    await design.save();
+
+    res.json({
+      success: true,
+      message: `Design is now ${access}`,
+      design,
+    });
+  } catch (error) {
+    console.error("Error updating access:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+// Get public design (keep as is)
+const getPublicDesign = async (req, res) => {
+  try {
+    const design = await Design.findById(req.params.id);
 
     if (!design) {
       return res.status(404).json({
@@ -225,10 +306,51 @@ const exportDesign = async (req, res) => {
       });
     }
 
-    // In a real implementation, you would:
-    // 1. Use the jsonData to recreate the canvas
-    // 2. Export it as PNG/PDF
-    // 3. Return the download URL or file
+    if (design.access !== "public") {
+      return res.status(403).json({
+        success: false,
+        message: "This design is private",
+      });
+    }
+
+    res.json({
+      success: true,
+      design: {
+        _id: design._id,
+        title: design.title,
+        jsonData: design.jsonData,
+        thumbnailUrl: design.thumbnailUrl,
+        width: design.width,
+        height: design.height,
+        backgroundColor: design.backgroundColor,
+        createdAt: design.createdAt,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Error fetching design",
+      error: error.message,
+    });
+  }
+};
+
+// Export design (keep as is)
+const exportDesign = async (req, res) => {
+  try {
+    const userId = req.user._id;
+
+    const design = await Design.findOne({
+      _id: req.params.id,
+      userId: userId,
+    });
+
+    if (!design) {
+      return res.status(404).json({
+        success: false,
+        message: "Design not found",
+      });
+    }
 
     res.json({
       success: true,
@@ -247,9 +369,12 @@ const exportDesign = async (req, res) => {
 module.exports = {
   getDesigns,
   getDesignById,
+  getPublicDesign,
+  updateDesignAccess,
   createDesign,
   updateDesign,
   deleteDesign,
   duplicateDesign,
   exportDesign,
+  getDesignsByUserId,
 };

@@ -1,5 +1,4 @@
-import * as React from "react";
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Layers,
   Type,
@@ -12,12 +11,14 @@ import {
   EyeOff,
   Lock,
   Unlock,
+  Pen,
 } from "lucide-react";
 
 // Helper to get the correct icon for each layer type
 const getLayerIcon = (type) => {
   switch (type) {
     case "i-text":
+    case "text":
       return <Type size={16} />;
     case "rect":
       return <Square size={16} />;
@@ -29,6 +30,8 @@ const getLayerIcon = (type) => {
       return <Minus size={16} />;
     case "image":
       return <ImageIcon size={16} />;
+    case "path":
+      return <Pen size={16} />;
     default:
       return <Layers size={16} />;
   }
@@ -43,10 +46,10 @@ const LayersPanel = ({ canvas, selectedObject, onSelectObject }) => {
 
     const updateLayers = () => {
       const objects = canvas.getObjects().map((obj, index) => ({
-        id: index,
+        id: obj.id || index,
         name: obj.name || `${obj.type} #${index + 1}`,
         type: obj.type,
-        visible: obj.visible,
+        visible: obj.visible !== false,
         locked: !obj.selectable,
         object: obj,
       }));
@@ -58,32 +61,43 @@ const LayersPanel = ({ canvas, selectedObject, onSelectObject }) => {
     canvas.on("object:added", updateLayers);
     canvas.on("object:removed", updateLayers);
     canvas.on("object:modified", updateLayers);
+    canvas.on("selection:created", updateLayers);
+    canvas.on("selection:updated", updateLayers);
+    canvas.on("selection:cleared", updateLayers);
 
     return () => {
       canvas.off("object:added", updateLayers);
       canvas.off("object:removed", updateLayers);
       canvas.off("object:modified", updateLayers);
+      canvas.off("selection:created", updateLayers);
+      canvas.off("selection:updated", updateLayers);
+      canvas.off("selection:cleared", updateLayers);
     };
   }, [canvas]);
 
   // Toggle layer visibility
   const toggleVisibility = (e, layer) => {
-    e.stopPropagation(); // Prevent layer selection when clicking the icon
-    layer.object.set("visible", !layer.visible);
+    e.stopPropagation();
+    const newVisible = !layer.visible;
+    layer.object.set("visible", newVisible);
     canvas.renderAll();
     setLayers((prev) =>
-      prev.map((l) => (l.id === layer.id ? { ...l, visible: !l.visible } : l))
+      prev.map((l) => (l.id === layer.id ? { ...l, visible: newVisible } : l))
     );
   };
 
   // Toggle layer lock state
   const toggleLock = (e, layer) => {
     e.stopPropagation();
-    layer.object.set("selectable", layer.locked);
-    layer.object.set("evented", layer.locked);
-    canvas.discardActiveObject().renderAll();
+    const newLocked = !layer.locked;
+    layer.object.set("selectable", !newLocked);
+    layer.object.set("evented", !newLocked);
+    if (newLocked && selectedObject === layer.object) {
+      canvas.discardActiveObject();
+    }
+    canvas.renderAll();
     setLayers((prev) =>
-      prev.map((l) => (l.id === layer.id ? { ...l, locked: !l.locked } : l))
+      prev.map((l) => (l.id === layer.id ? { ...l, locked: newLocked } : l))
     );
   };
 

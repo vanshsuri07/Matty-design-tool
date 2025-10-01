@@ -7,7 +7,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import Dashboard from "./components/Dashboard/Dashboard";
 import CanvasEditor from "./components/Canvas/CanvasEditor";
 import HomePage from "./pages/HomePage";
-
+import DesignViewPage from "./components/Canvas/DesignPageView";
 function App() {
   return (
     <BrowserRouter>
@@ -15,6 +15,7 @@ function App() {
         <div className="App">
           <Routes>
             <Route path="/" element={<HomePage />} />
+            <Route path="/view/:id" element={<DesignViewPage />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route
@@ -33,6 +34,7 @@ function App() {
                 </ProtectedRoute>
               }
             />
+
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>

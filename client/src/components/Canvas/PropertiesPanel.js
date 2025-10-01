@@ -52,7 +52,7 @@ const PropertyInput = ({ label, value, onChange, unit = "" }) => (
     </span>
     <input
       type="number"
-      value={value}
+      value={value || 0}
       onChange={(e) => onChange(parseInt(e.target.value) || 0)}
       className="w-full bg-transparent p-1.5 text-sm text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded-r-lg"
     />
@@ -62,7 +62,22 @@ const PropertyInput = ({ label, value, onChange, unit = "" }) => (
 
 // Main Properties Panel Component
 const PropertiesPanel = ({ selectedObject, canvas }) => {
-  const [properties, setProperties] = useState({});
+  const [properties, setProperties] = useState({
+    fill: "#000000",
+    stroke: "#000000",
+    strokeWidth: 0,
+    opacity: 1,
+    angle: 0,
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+    rx: 0,
+    fontSize: 24,
+    fontFamily: "Arial",
+    fontWeight: "normal",
+    textAlign: "left",
+  });
 
   useEffect(() => {
     if (selectedObject) {
@@ -76,7 +91,7 @@ const PropertiesPanel = ({ selectedObject, canvas }) => {
         top: Math.round(selectedObject.get("top") || 0),
         width: Math.round(selectedObject.getScaledWidth() || 0),
         height: Math.round(selectedObject.getScaledHeight() || 0),
-        rx: selectedObject.get("rx") || 0, // Corner radius X
+        rx: selectedObject.get("rx") || 0,
         fontSize: selectedObject.get("fontSize") || 24,
         fontFamily: selectedObject.get("fontFamily") || "Arial",
         fontWeight: selectedObject.get("fontWeight") || "normal",
@@ -133,7 +148,8 @@ const PropertiesPanel = ({ selectedObject, canvas }) => {
     );
   }
 
-  const isText = selectedObject.type === "i-text";
+  const isText =
+    selectedObject.type === "i-text" || selectedObject.type === "text";
   const isShape = ["rect", "circle", "triangle", "line"].includes(
     selectedObject.type
   );
@@ -240,14 +256,14 @@ const PropertiesPanel = ({ selectedObject, canvas }) => {
             <div className="flex gap-2">
               <input
                 type="color"
-                value={properties.fill}
+                value={properties.fill || "#000000"}
                 onChange={(e) => updateProperty("fill", e.target.value)}
                 className="w-10 h-10 rounded-lg cursor-pointer appearance-none bg-transparent border border-slate-200"
                 style={{ backgroundColor: properties.fill }}
               />
               <input
                 type="text"
-                value={properties.fill}
+                value={properties.fill || "#000000"}
                 onChange={(e) => updateProperty("fill", e.target.value)}
                 className="flex-1 px-2 py-1 text-sm border border-slate-200 rounded-lg font-mono bg-slate-50"
               />
@@ -263,14 +279,14 @@ const PropertiesPanel = ({ selectedObject, canvas }) => {
               <div className="flex gap-2">
                 <input
                   type="color"
-                  value={properties.stroke}
+                  value={properties.stroke || "#000000"}
                   onChange={(e) => updateProperty("stroke", e.target.value)}
                   className="w-10 h-10 rounded-lg cursor-pointer appearance-none bg-transparent border border-slate-200"
                   style={{ backgroundColor: properties.stroke }}
                 />
                 <input
                   type="text"
-                  value={properties.stroke}
+                  value={properties.stroke || "#000000"}
                   onChange={(e) => updateProperty("stroke", e.target.value)}
                   className="flex-1 px-2 py-1 text-sm border border-slate-200 rounded-lg font-mono bg-slate-50"
                 />
@@ -301,14 +317,14 @@ const PropertiesPanel = ({ selectedObject, canvas }) => {
               min="0"
               max="1"
               step="0.01"
-              value={properties.opacity}
+              value={properties.opacity || 1}
               onChange={(e) =>
                 updateProperty("opacity", parseFloat(e.target.value))
               }
               className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer range-sm"
             />
             <span className="text-sm font-medium text-slate-600 w-12 text-center">
-              {Math.round(properties.opacity * 100)}%
+              {Math.round((properties.opacity || 1) * 100)}%
             </span>
           </div>
         </div>

@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { designAPI } from "../../services/api";
 import { motion, AnimatePresence } from "framer-motion";
-
+import { mockTemplates } from "../../utils/mocktemplates";
 import {
   Plus,
   LayoutGrid,
@@ -19,69 +19,7 @@ import {
   Edit,
   Trash2,
 } from "lucide-react";
-
-const trendingDesignsData = [
-  {
-    id: "t1",
-    name: "Modern Portfolio Template",
-    category: "Portfolio",
-    views: "12.5K",
-    likes: "2.3K",
-    previewUrl: "https://placehold.co/600x400/8B5CF6/FFFFFF?text=Portfolio",
-    author: "Sarah Chen",
-    trending: true,
-  },
-  {
-    id: "t2",
-    name: "SaaS Landing Page Pro",
-    category: "Landing Page",
-    views: "18.2K",
-    likes: "3.8K",
-    previewUrl: "https://placehold.co/600x400/EC4899/FFFFFF?text=SaaS+Pro",
-    author: "Alex Rivera",
-    trending: true,
-  },
-  {
-    id: "t3",
-    name: "E-commerce Product Grid",
-    category: "E-commerce",
-    views: "9.7K",
-    likes: "1.9K",
-    previewUrl: "https://placehold.co/600x400/F59E0B/FFFFFF?text=Ecommerce",
-    author: "Maya Patel",
-    trending: true,
-  },
-  {
-    id: "t4",
-    name: "Mobile App Showcase",
-    category: "Mobile",
-    views: "15.4K",
-    likes: "2.8K",
-    previewUrl: "https://placehold.co/600x400/10B981/FFFFFF?text=Mobile+App",
-    author: "James Wilson",
-    trending: true,
-  },
-  {
-    id: "t5",
-    name: "Minimalist Brand Identity",
-    category: "Branding",
-    views: "11.3K",
-    likes: "2.5K",
-    previewUrl: "https://placehold.co/600x400/3B82F6/FFFFFF?text=Branding",
-    author: "Emma Thompson",
-    trending: true,
-  },
-  {
-    id: "t6",
-    name: "Dashboard Analytics UI",
-    category: "Dashboard",
-    views: "14.8K",
-    likes: "3.2K",
-    previewUrl: "https://placehold.co/600x400/EF4444/FFFFFF?text=Analytics",
-    author: "David Kim",
-    trending: true,
-  },
-];
+import Dialog from "./Dialog";
 
 // --- TRENDING DESIGN CARD ---
 const TrendingCard = ({ design, onUseTemplate }) => {
@@ -113,7 +51,7 @@ const TrendingCard = ({ design, onUseTemplate }) => {
         <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
           <button
             onClick={() => onUseTemplate(design.id)}
-            className="bg-white text-slate-900 px-6 py-2.5 rounded-lg font-semibold hover:bg-coral-500 hover:text-white transition-all duration-200 transform hover:scale-105"
+            className="bg-white text-slate-900 px-6 py-2.5 rounded-lg font-semibold hover:bg-coral-500 hover:text-black transition-all duration-200 transform hover:scale-105"
           >
             Use Template
           </button>
@@ -212,7 +150,7 @@ const DesignCard = ({ design, onEdit, onDelete, onDuplicate }) => {
         <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center">
           <button
             onClick={() => onEdit(design._id)}
-            className="bg-white text-slate-900 px-4 py-2 rounded-lg font-medium hover:bg-coral-500 hover:text-white transition-all duration-200"
+            className="bg-white text-slate-900 px-6 py-2.5 rounded-lg font-semibold hover:bg-coral-500 hover:text-black transition-all duration-200 transform hover:scale-105"
           >
             Edit Design
           </button>
@@ -293,39 +231,55 @@ const Dashboard = () => {
   const [error, setError] = useState("");
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [selectedDesign, setSelectedDesign] = useState(null);
 
   useEffect(() => {
-    fetchDesigns();
-  }, []);
-
-  const fetchDesigns = async () => {
-    try {
-      setLoading(true);
-      setError("");
-      const response = await designAPI.getAll();
-      if (response.data.success) {
-        setDesigns(response.data.designs);
+    const fetchDesigns = async () => {
+      // user._id exists because your AuthContext provides it
+      if (!user?.id) {
+        console.log("No user?._id, skipping fetch");
+        return;
       }
-    } catch (error) {
-      setError("Failed to load designs. Please try again.");
-      console.error("Error fetching designs:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const handleDeleteDesign = async (designId) => {
-    if (window.confirm("Are you sure you want to delete this design?")) {
       try {
-        await designAPI.delete(designId);
-        setDesigns(designs.filter((design) => design._id !== designId));
+        setLoading(true);
+        setError("");
+
+        // Pass user._id to match backend expectation
+        const response = await designAPI.getByUserId(user._id);
+
+        if (response?.data?.success) {
+          setDesigns(response.data.designs);
+          console.log("Designs loaded:", response.data.designs.length);
+        }
       } catch (error) {
-        console.error("Error deleting design:", error);
-        alert("Failed to delete design");
+        console.error("Error fetching designs:", error);
+        setError("Failed to load designs. Please try again.");
+      } finally {
+        setLoading(false);
       }
-    }
+    };
+
+    fetchDesigns();
+  }, [user?._id]); // Depend on user._id
+
+  const handleDeleteClick = async (designId) => {
+    setSelectedDesign(designId);
+    setOpen(true);
   };
 
+  const confirmDelete = async () => {
+    try {
+      await designAPI.delete(selectedDesign);
+      setDesigns(designs.filter((d) => d._id !== selectedDesign));
+    } catch (error) {
+      console.error("Error deleting design:", error);
+    } finally {
+      setOpen(false);
+      setSelectedDesign(null);
+    }
+  };
   const handleDuplicateDesign = async (designId) => {
     try {
       const response = await designAPI.duplicate(designId);
@@ -370,6 +324,7 @@ const Dashboard = () => {
         </div>
       );
     }
+
     if (error) {
       return (
         <div className="text-center py-12 bg-slate-800/50 border border-slate-700 rounded-lg">
@@ -379,16 +334,17 @@ const Dashboard = () => {
           </h3>
           <p className="mt-1 text-sm text-slate-400">{error}</p>
           <div className="mt-6">
-            <button
-              onClick={fetchDesigns}
+            {/* <button
+              onClick={() => fetchDesigns(user._id)}
               className="text-sm font-semibold text-coral-500 hover:text-coral-400"
             >
               Try Again
-            </button>
+            </button> */}
           </div>
         </div>
       );
     }
+
     if (designs.length === 0) {
       return (
         <div className="text-center py-12 border-2 border-dashed border-slate-700 rounded-lg">
@@ -411,23 +367,53 @@ const Dashboard = () => {
         </div>
       );
     }
+
     return (
-      <AnimatePresence>
+      <>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {designs.map((design) => (
-            <DesignCard
-              key={design._id}
-              design={design}
-              onEdit={handleEditDesign}
-              onDelete={handleDeleteDesign}
-              onDuplicate={handleDuplicateDesign}
-            />
-          ))}
+          <AnimatePresence mode="popLayout">
+            {designs.map((design) => (
+              <DesignCard
+                key={design._id}
+                design={design}
+                onEdit={handleEditDesign}
+                onDelete={handleDeleteClick}
+                onDuplicate={handleDuplicateDesign}
+              />
+            ))}
+          </AnimatePresence>
         </div>
-      </AnimatePresence>
+
+        {/* Dialog outside of AnimatePresence */}
+        <Dialog
+          open={open}
+          onClose={() => setOpen(false)}
+          title="Delete Design"
+          footer={
+            <>
+              <button
+                className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 transition-colors"
+                onClick={() => setOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white transition-colors"
+                onClick={confirmDelete}
+              >
+                Delete
+              </button>
+            </>
+          }
+        >
+          <p className="text-slate-300">
+            Are you sure you want to delete this design? This action cannot be
+            undone.
+          </p>
+        </Dialog>
+      </>
     );
   };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-slate-900 to-gray-900 text-white">
       {/* Header */}
@@ -435,7 +421,7 @@ const Dashboard = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center">
-              <h1 className="text-2xl font-bold tracking-tighter bg-gradient-to-r from-coral-500 to-pink-500 bg-clip-text text-transparent">
+              <h1 className="text-2xl font-bold tracking-tighter bg-gradient-to-r from-coral-500 to-pink-500 bg-clip-text text-white">
                 Matty
               </h1>
             </div>
@@ -478,10 +464,19 @@ const Dashboard = () => {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {trendingDesignsData.map((design) => (
+            {mockTemplates.map((template) => (
               <TrendingCard
-                key={design.id}
-                design={design}
+                key={template._id}
+                design={{
+                  id: template._id,
+                  name: template.title,
+                  category: template.category,
+                  views: template.views,
+                  likes: template.likes,
+                  previewUrl: template.thumbnailUrl,
+                  author: template.author,
+                  trending: true,
+                }}
                 onUseTemplate={handleUseTemplate}
               />
             ))}

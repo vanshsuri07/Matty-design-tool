@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Canvas,
   IText,
@@ -7,17 +7,17 @@ import {
   Triangle,
   Line,
   FabricImage,
+  PencilBrush,
 } from "fabric";
 import Toolbar from "./Toolbar";
-// Make sure to import the new header
 import { EditorHeader } from "./EditorHeader";
 import PropertiesPanel from "./PropertiesPanel";
 import LayersPanel from "./LayersPanel";
 import { designAPI } from "../../services/api";
 import { useParams, useNavigate } from "react-router-dom";
+import { mockTemplates } from "../../utils/mocktemplates";
 
 const CanvasEditor = () => {
-  // All your existing state and refs remain the same
   const { id } = useParams();
   const navigate = useNavigate();
   const [lastSaved, setLastSaved] = useState(null);
@@ -27,18 +27,29 @@ const CanvasEditor = () => {
   const [selectedObject, setSelectedObject] = useState(null);
   const [designTitle, setDesignTitle] = useState("Untitled Design");
   const [history, setHistory] = useState([]);
-  const [historyStep, setHistoryStep] = useState(-1); // Start at -1 for initial state
+  const [historyStep, setHistoryStep] = useState(-1);
   const [zoom, setZoom] = useState(1);
   const [isSaving, setIsSaving] = useState(false);
   const [designData, setDesignData] = useState(null);
   const [activeTool, setActiveTool] = useState("move");
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Refs to track loading state
+  const hasLoadedRef = useRef(false);
+  const isInitialLoadRef = useRef(true);
+
   useEffect(() => {
     if (!canvasRef.current) return;
     const fabricCanvas = new Canvas(canvasRef.current, {
-      width: 800,
-      height: 600,
+      width: 650,
+      height: 500,
       backgroundColor: "#ffffff",
     });
+
+    // Initialize the PencilBrush for drawing
+    fabricCanvas.freeDrawingBrush = new PencilBrush(fabricCanvas);
+    fabricCanvas.freeDrawingBrush.width = 3;
+    fabricCanvas.freeDrawingBrush.color = "#000000";
 
     fabricCanvas.on("selection:created", (e) =>
       setSelectedObject(e.selected[0])
@@ -48,47 +59,202 @@ const CanvasEditor = () => {
     );
     fabricCanvas.on("selection:cleared", () => setSelectedObject(null));
 
+    // Listen for path creation (when pen drawing is finished)
+    fabricCanvas.on("path:created", () => {
+      if (hasLoadedRef.current && !isInitialLoadRef.current) {
+        saveHistory();
+      }
+    });
+
     setCanvas(fabricCanvas);
 
     return () => fabricCanvas.dispose();
   }, []);
 
-  useEffect(() => {
-    if (!canvas || !id) return;
-    const fetchDesign = async () => {
-      try {
-        const response = await designAPI.getById(id);
-        if (response.data.success && response.data.design) {
-          const { title, jsonData } = response.data.design;
-          setDesignTitle(title);
-          await canvas.loadFromJSON(jsonData);
-          canvas.renderAll();
-          saveHistory(); // Save fetched state as initial history
-        }
-      } catch (error) {
-        console.error("Error loading design:", error);
-      }
-    };
-    fetchDesign();
-  }, [canvas, id]);
-
-  const saveHistory = () => {
-    if (!canvas) return;
+  // Memoize saveHistory
+  const saveHistory = useCallback(() => {
+    if (!canvas || isInitialLoadRef.current) return;
     const json = JSON.stringify(canvas.toJSON());
     setHistory((prev) => [...prev.slice(0, historyStep + 1), json]);
     setHistoryStep((prev) => prev + 1);
-  };
+  }, [canvas, historyStep]);
+
+  // Load design on mount
+  useEffect(() => {
+    if (!canvas || hasLoadedRef.current) return;
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const templateId = urlParams.get("template");
+
+    const loadCanvas = async () => {
+      setIsLoading(true);
+      isInitialLoadRef.current = true;
+
+      try {
+        // Priority 1: Load template
+        if (templateId && mockTemplates) {
+          const template = mockTemplates.find((t) => t._id === templateId);
+          if (template?.data) {
+            console.log("📄 Loading template:", template.title);
+            canvas.clear();
+            await canvas.loadFromJSON(template.data);
+            canvas.requestRenderAll();
+            setDesignTitle(template.title + " (Copy)");
+
+            // Save initial state to history
+            const initialState = JSON.stringify(canvas.toJSON());
+            setHistory([initialState]);
+            setHistoryStep(0);
+
+            hasLoadedRef.current = true;
+            isInitialLoadRef.current = false;
+            console.log("✓ Template loaded successfully");
+            setIsLoading(false);
+            return;
+          }
+        }
+
+        // Priority 2: Load saved design
+        if (id) {
+          console.log("🔄 Fetching design with ID:", id);
+          const response = await designAPI.getById(id);
+
+          console.log("📦 Full response:", response);
+          console.log("📦 Response.data:", response.data);
+          console.log(
+            "📦 Response.data keys:",
+            Object.keys(response.data || {})
+          );
+          console.log("📦 Response.data.design:", response.data?.design);
+          console.log("📦 Response.data.data:", response.data?.data);
+
+          // Try multiple possible structures
+          let design = null;
+
+          // Check various possible response structures
+          if (response?.data?.design) {
+            design = response.data.design;
+            console.log("✓ Found design in response.data.design");
+          } else if (response?.data?.designs && response.data.designs[0]) {
+            design = response.data.designs[0];
+            console.log("✓ Found design in response.data.designs[0]");
+          } else if (response?.data) {
+            // Check if response.data itself has the design fields
+            if (response.data.title || response.data.jsonData) {
+              design = response.data;
+              console.log("✓ Found design directly in response.data");
+            }
+          }
+
+          console.log("📦 Final design object:", design);
+
+          if (design && design.jsonData) {
+            const { title, jsonData, updatedAt } = design;
+
+            console.log("📄 Loading saved design:", title);
+            console.log("📊 Design jsonData type:", typeof jsonData);
+            console.log("📊 Design jsonData:", jsonData);
+
+            setDesignTitle(title || "Untitled Design");
+            if (updatedAt) {
+              setLastSaved(new Date(updatedAt));
+            }
+
+            canvas.clear();
+            await canvas.loadFromJSON(jsonData);
+            canvas.requestRenderAll();
+
+            // Save initial state to history
+            const initialState = JSON.stringify(canvas.toJSON());
+            setHistory([initialState]);
+            setHistoryStep(0);
+
+            hasLoadedRef.current = true;
+            isInitialLoadRef.current = false;
+            console.log("✓ Design loaded successfully");
+          } else {
+            console.error("❌ Could not find design data in response");
+            console.error(
+              "❌ Response structure:",
+              JSON.stringify(response.data, null, 2)
+            );
+          }
+        }
+      } catch (error) {
+        console.error("❌ Error loading canvas:", error);
+        alert("Failed to load design. Please try again.");
+      } finally {
+        setIsLoading(false);
+        // Add a small delay before allowing auto-save
+        setTimeout(() => {
+          isInitialLoadRef.current = false;
+        }, 1000);
+      }
+    };
+
+    loadCanvas();
+  }, [canvas, id, mockTemplates]);
+
+  // Reset load flag when design ID changes
+  useEffect(() => {
+    hasLoadedRef.current = false;
+    isInitialLoadRef.current = true;
+  }, [id]);
+
+  // Auto-save with proper debouncing
+  useEffect(() => {
+    // Don't auto-save if:
+    // - Canvas not ready
+    // - No design ID (new design)
+    // - Haven't loaded yet
+    // - Still in initial load phase
+    // - Currently saving
+    if (
+      !canvas ||
+      !id ||
+      !hasLoadedRef.current ||
+      isInitialLoadRef.current ||
+      isSaving ||
+      isLoading
+    ) {
+      return;
+    }
+
+    // const autoSave = async () => {
+    //   try {
+    //     console.log("💾 Auto-saving...");
+    //     const jsonData = canvas.toJSON();
+    //     const thumbnail = canvas.toDataURL({ format: "png", quality: 0.8 });
+
+    //     await designAPI.update(id, {
+    //       title: designTitle,
+    //       jsonData: jsonData,
+    //       thumbnailUrl: thumbnail,
+    //     });
+
+    //     setLastSaved(new Date());
+    //     console.log("✓ Auto-saved at", new Date().toLocaleTimeString());
+    //   } catch (error) {
+    //     console.error("❌ Auto-save failed:", error);
+    //   }
+    // };
+
+    // const timeoutId = setTimeout(autoSave, 3000);
+
+    return;
+  }, [canvas, id, designTitle, historyStep, isSaving, isLoading]);
 
   const handleAction = (action) => {
-    // If the action is a tool selection, update the active tool state
     const tools = [
       "move",
       "rectangle",
       "circle",
+      "triangle",
       "line",
       "text",
       "pen",
       "frame",
+      "image",
     ];
     if (tools.includes(action)) {
       setActiveTool(action);
@@ -97,7 +263,37 @@ const CanvasEditor = () => {
     if (!canvas) return;
 
     switch (action) {
+      case "move":
+        canvas.isDrawingMode = false;
+        canvas.selection = true;
+        break;
+
+      case "pen":
+        canvas.isDrawingMode = true;
+        if (canvas.freeDrawingBrush) {
+          canvas.freeDrawingBrush.width = 3;
+          canvas.freeDrawingBrush.color = "#000000";
+        }
+        break;
+
+      case "frame":
+        canvas.isDrawingMode = false;
+        const frame = new Rect({
+          left: 100,
+          top: 100,
+          width: 400,
+          height: 300,
+          fill: "transparent",
+          stroke: "#6366f1",
+          strokeWidth: 2,
+          strokeDashArray: [5, 5],
+        });
+        canvas.add(frame);
+        canvas.setActiveObject(frame);
+        break;
+
       case "text":
+        canvas.isDrawingMode = false;
         const text = new IText("Add your text", {
           left: 100,
           top: 100,
@@ -110,6 +306,7 @@ const CanvasEditor = () => {
         break;
 
       case "heading":
+        canvas.isDrawingMode = false;
         const heading = new IText("Your Heading", {
           left: 100,
           top: 100,
@@ -123,6 +320,7 @@ const CanvasEditor = () => {
         break;
 
       case "rectangle":
+        canvas.isDrawingMode = false;
         const rect = new Rect({
           left: 100,
           top: 100,
@@ -137,6 +335,7 @@ const CanvasEditor = () => {
         break;
 
       case "circle":
+        canvas.isDrawingMode = false;
         const circle = new Circle({
           left: 100,
           top: 100,
@@ -150,6 +349,7 @@ const CanvasEditor = () => {
         break;
 
       case "triangle":
+        canvas.isDrawingMode = false;
         const triangle = new Triangle({
           left: 100,
           top: 100,
@@ -164,6 +364,7 @@ const CanvasEditor = () => {
         break;
 
       case "line":
+        canvas.isDrawingMode = false;
         const line = new Line([50, 50, 250, 50], {
           stroke: "#000000",
           strokeWidth: 3,
@@ -211,8 +412,6 @@ const CanvasEditor = () => {
 
       case "clear":
         canvas.clear();
-        canvas.setBackgroundColor("#ffffff", canvas.renderAll.bind(canvas));
-
         break;
 
       case "export":
@@ -226,16 +425,20 @@ const CanvasEditor = () => {
       case "undo":
         if (historyStep > 0) {
           const newStep = historyStep - 1;
-
+          isInitialLoadRef.current = true;
           canvas
             .loadFromJSON(history[newStep])
             .then(() => {
               canvas.renderAll();
               setHistoryStep(newStep);
               console.log("Undo to step", newStep);
+              setTimeout(() => {
+                isInitialLoadRef.current = false;
+              }, 100);
             })
             .catch((err) => {
               console.error("Undo failed:", err);
+              isInitialLoadRef.current = false;
             });
         }
         break;
@@ -243,16 +446,20 @@ const CanvasEditor = () => {
       case "redo":
         if (historyStep < history.length - 1) {
           const newStep = historyStep + 1;
-
+          isInitialLoadRef.current = true;
           canvas
             .loadFromJSON(history[newStep])
             .then(() => {
               canvas.renderAll();
               setHistoryStep(newStep);
               console.log("Redo to step", newStep);
+              setTimeout(() => {
+                isInitialLoadRef.current = false;
+              }, 100);
             })
             .catch((err) => {
               console.error("Redo failed:", err);
+              isInitialLoadRef.current = false;
             });
         }
         break;
@@ -284,58 +491,65 @@ const CanvasEditor = () => {
         break;
 
       default:
-        // No action for unknown cases
         break;
     }
 
-    saveHistory();
+    if (!isInitialLoadRef.current) {
+      saveHistory();
+    }
     canvas.renderAll();
   };
 
-  // ... (Paste your saveDesign, handleImageUpload, handleZoomChange, etc. here)
   const saveDesign = async () => {
     if (!canvas) return;
 
     try {
       setIsSaving(true);
+      console.log("💾 Manual save triggered...");
       const jsonData = canvas.toJSON();
 
-      // Generate thumbnail (base64 image)
       const thumbnailDataURL = canvas.toDataURL({
         format: "jpeg",
         quality: 0.8,
-        multiplier: 0.3, // Smaller thumbnail
+        multiplier: 0.3,
       });
 
       const designData = {
         title: designTitle,
         jsonData,
-        thumbnailUrl: thumbnailDataURL, // In real app, upload to Cloudinary
+        thumbnailUrl: thumbnailDataURL,
       };
 
       let response;
       if (id) {
-        // Update existing design
         response = await designAPI.update(id, designData);
+        console.log("✓ Design updated successfully");
       } else {
-        // Create new design
         response = await designAPI.create(designData);
+        console.log("✓ New design created successfully");
       }
 
       if (response.data.success) {
         setLastSaved(new Date());
         if (!id) {
-          // Redirect to edit mode for new design
+          // Remove template query parameter when navigating to saved design
           navigate(`/editor/${response.data.design._id}`, { replace: true });
+        } else {
+          // If updating existing design, also clean URL of any template param
+          const urlParams = new URLSearchParams(window.location.search);
+          if (urlParams.has("template")) {
+            navigate(`/editor/${id}`, { replace: true });
+          }
         }
       }
     } catch (error) {
-      console.error("Error saving design:", error);
+      console.error("❌ Error saving design:", error);
       alert("Failed to save design");
     } finally {
       setIsSaving(false);
     }
   };
+
   const handleImageUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file || !canvas) {
@@ -358,7 +572,10 @@ const CanvasEditor = () => {
         canvas.add(img);
         canvas.setActiveObject(img);
         canvas.renderAll();
-        saveHistory();
+
+        if (!isInitialLoadRef.current) {
+          saveHistory();
+        }
 
         console.log("Image added to canvas and history saved.");
       } catch (err) {
@@ -379,28 +596,22 @@ const CanvasEditor = () => {
     canvas?.setZoom(clampedZoom);
     canvas?.renderAll();
   };
-  // In your editor/canvas component
-  console.log("Template data:", designData?.content);
+
   const loadTemplateData = (templateData) => {
     if (!canvas) return;
 
     try {
-      // Parse string JSON if needed
       const parsedData =
         typeof templateData === "string"
           ? JSON.parse(templateData)
           : templateData;
 
-      // Clear and reset background
       canvas.clear();
       canvas.setBackgroundColor("#ffffff", canvas.renderAll.bind(canvas));
 
-      // Load template into canvas
       canvas.loadFromJSON(parsedData, () => {
-        // Reset zoom and pan so content is visible
         canvas.setZoom(1);
         canvas.absolutePan({ x: 0, y: 0 });
-
         canvas.renderAll();
         console.log("Template loaded successfully!");
       });
@@ -409,7 +620,6 @@ const CanvasEditor = () => {
     }
   };
 
-  // When receiving template data
   useEffect(() => {
     if (designData?.content) {
       loadTemplateData(designData.content);
@@ -426,8 +636,8 @@ const CanvasEditor = () => {
         className="hidden"
       />
 
-      {/* Use the new unified header */}
       <EditorHeader
+        designId={id}
         designTitle={designTitle}
         setDesignTitle={setDesignTitle}
         lastSaved={lastSaved}
@@ -441,7 +651,6 @@ const CanvasEditor = () => {
       />
 
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Toolbar */}
         <Toolbar
           onAction={handleAction}
           hasSelection={!!selectedObject}
@@ -450,18 +659,20 @@ const CanvasEditor = () => {
           canRedo={historyStep < history.length - 1}
         />
 
-        {/* Optional Layers Panel */}
         <LayersPanel
           canvas={canvas}
           selectedObject={selectedObject}
-          onSelectObject={(obj) => canvas?.setActiveObject(obj).renderAll()}
+          onSelectObject={(obj) => canvas?.renderAll()}
         />
 
-        {/* Main Canvas Area */}
         <main className="flex-1 flex items-center justify-center p-4 sm:p-8 overflow-auto bg-slate-100">
+          {isLoading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75 z-50">
+              <div className="text-lg font-semibold">Loading design...</div>
+            </div>
+          )}
           <div
             className="canvas-container bg-white rounded-md shadow-md"
-            // This style dynamically adjusts for zoom
             style={{
               transform: `scale(${zoom})`,
               transformOrigin: "center center",
@@ -471,7 +682,6 @@ const CanvasEditor = () => {
           </div>
         </main>
 
-        {/* Right Properties Panel */}
         <PropertiesPanel selectedObject={selectedObject} canvas={canvas} />
       </div>
     </div>

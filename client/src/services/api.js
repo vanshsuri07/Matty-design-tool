@@ -43,6 +43,11 @@ export const designAPI = {
   update: (id, designData) => api.put(`/designs/${id}`, designData),
   delete: (id) => api.delete(`/designs/${id}`),
   duplicate: (id) => api.post(`/designs/${id}/duplicate`),
+  getByUserId: (userId) => api.get(`/designs/${userId}`),
+
+  updateAccess: (id, access) => api.patch(`/designs/${id}/access`, { access }),
+
+  getPublicDesign: (id) => api.get(`/designs/view/${id}`),
 };
 
 export default api;
