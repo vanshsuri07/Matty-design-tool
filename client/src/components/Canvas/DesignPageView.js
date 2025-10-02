@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Canvas, FabricImage } from "fabric";
+import { Canvas, FabricImage, Text } from "fabric";
 import { ArrowLeft } from "lucide-react";
 import { designAPI } from "../../services/api";
 
@@ -9,40 +9,64 @@ const DesignViewPage = () => {
   const navigate = useNavigate();
   const canvasRef = useRef(null);
   const fabricCanvasRef = useRef(null);
+  const initAttempted = useRef(false);
   const [design, setDesign] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [canvasReady, setCanvasReady] = useState(false);
 
   // Initialize canvas once
   useEffect(() => {
-    if (!canvasRef.current) return;
-
-    if (fabricCanvasRef.current) {
-      console.log("Canvas already initialized");
+    if (!canvasRef.current) {
+      console.log("Canvas ref not ready yet");
       return;
     }
 
+    // Prevent double initialization
+    if (fabricCanvasRef.current || initAttempted.current) {
+      console.log("Canvas already initialized or init attempted");
+      return;
+    }
+
+    initAttempted.current = true;
     console.log("Initializing canvas...");
 
-    const fabricCanvas = new Canvas(canvasRef.current, {
-      width: 800,
-      height: 600,
-      backgroundColor: "#ffffff",
-      selection: false,
-      renderOnAddRemove: true,
-    });
+    // Small delay to ensure DOM is fully ready
+    const timeoutId = setTimeout(() => {
+      try {
+        const fabricCanvas = new Canvas(canvasRef.current, {
+          width: 800,
+          height: 600,
+          backgroundColor: "#ffffff",
+          selection: false,
+          renderOnAddRemove: true,
+        });
 
-    fabricCanvasRef.current = fabricCanvas;
-    console.log("✓ Canvas initialized");
+        fabricCanvasRef.current = fabricCanvas;
+        setCanvasReady(true);
+        console.log("✓ Canvas initialized successfully");
+      } catch (error) {
+        console.error("Failed to initialize canvas:", error);
+        setError("Failed to initialize canvas");
+        initAttempted.current = false; // Allow retry
+      }
+    }, 100);
 
     return () => {
+      clearTimeout(timeoutId);
       if (fabricCanvasRef.current) {
         console.log("Disposing canvas");
-        fabricCanvasRef.current.dispose();
+        try {
+          fabricCanvasRef.current.dispose();
+        } catch (err) {
+          console.error("Error disposing canvas:", err);
+        }
         fabricCanvasRef.current = null;
+        setCanvasReady(false);
+        initAttempted.current = false;
       }
     };
-  }, []); // 👈 run once only
+  }, []);
 
   // Fetch design
   useEffect(() => {
@@ -79,104 +103,150 @@ const DesignViewPage = () => {
   // Load design into canvas
   useEffect(() => {
     // Wait for both canvas AND design to be ready
-    if (!fabricCanvasRef.current || !design) {
+    if (!canvasReady || !fabricCanvasRef.current || !design) {
       console.log("Waiting for canvas and design:", {
+        canvasReady,
         canvas: !!fabricCanvasRef.current,
         design: !!design,
+        hasJsonData: !!design?.jsonData,
       });
       return;
     }
 
+    console.log("Both canvas and design are ready, proceeding to load...");
+
     const canvas = fabricCanvasRef.current;
     console.log("Loading design into canvas...");
 
-    try {
-      // Parse JSON data if it's a string
-      let jsonData = design.jsonData;
-      if (typeof jsonData === "string") {
-        console.log("Parsing JSON string...");
-        jsonData = JSON.parse(jsonData);
-      }
+    const loadDesign = async () => {
+      try {
+        // Parse JSON data if it's a string
+        let jsonData = design.jsonData;
+        if (typeof jsonData === "string") {
+          console.log("Parsing JSON string...");
+          jsonData = JSON.parse(jsonData);
+        }
 
-      console.log("JSON Data:", jsonData);
-      console.log("Objects count:", jsonData?.objects?.length || 0);
+        console.log("JSON Data:", jsonData);
+        console.log("Objects count:", jsonData?.objects?.length || 0);
 
-      // Set canvas dimensions
-      const width = design.width || jsonData?.width || 800;
-      const height = design.height || jsonData?.height || 600;
-      const bgColor =
-        design.backgroundColor || jsonData?.background || "#ffffff";
+        // Set canvas dimensions
+        const width = design.width || jsonData?.width || 800;
+        const height = design.height || jsonData?.height || 600;
+        const bgColor =
+          design.backgroundColor || jsonData?.background || "#ffffff";
 
-      console.log("Setting canvas size:", { width, height, bgColor });
+        console.log("Setting canvas size:", { width, height, bgColor });
 
-      canvas.setWidth(width);
-      canvas.setHeight(height);
-      // canvas.setBackgroundColor(bgColor, () => canvas.renderAll());
+        canvas.setWidth(width);
+        canvas.setHeight(height);
+        canvas.setBackgroundColor(bgColor);
 
-      // Clear canvas before loading
-      canvas.clear();
+        // Clear canvas before loading
+        canvas.clear();
+        canvas.renderAll();
 
-      // Load JSON data
-      if (jsonData && jsonData.objects && jsonData.objects.length > 0) {
-        console.log("Loading objects from JSON...");
+        // Load JSON data
+        if (jsonData && jsonData.objects && jsonData.objects.length > 0) {
+          console.log("Loading objects from JSON...");
 
-        canvas.loadFromJSON(
-          jsonData,
-          () => {
-            console.log("JSON loaded, disabling interactions...");
+          // CRITICAL FIX: Add crossOrigin handling for production
+          const objectsWithCORS = jsonData.objects.map((obj) => {
+            if (obj.type === "image" && obj.src) {
+              return {
+                ...obj,
+                crossOrigin: "anonymous",
+              };
+            }
+            return obj;
+          });
 
-            // Disable all interactions
-            canvas.selection = false;
-            canvas.forEachObject((obj) => {
-              obj.selectable = false;
-              obj.evented = false;
-              obj.hasControls = false;
-              obj.hasBorders = false;
-            });
+          const modifiedJsonData = {
+            ...jsonData,
+            objects: objectsWithCORS,
+          };
 
-            // Block selections after load
-            canvas.on("selection:created", () => canvas.discardActiveObject());
-            canvas.on("selection:updated", () => canvas.discardActiveObject());
+          // Use promise-based loading for better error handling
+          canvas
+            .loadFromJSON(modifiedJsonData)
+            .then(() => {
+              console.log("JSON loaded, disabling interactions...");
 
-            canvas.requestRenderAll();
-            console.log("✓ Design loaded successfully!");
-          },
-          (o, object) => {
-            console.log("Loading object:", object.type);
-          }
-        );
-      } else {
-        console.warn("No objects in design JSON");
+              // Disable all interactions
+              canvas.selection = false;
+              canvas.forEachObject((obj) => {
+                obj.selectable = false;
+                obj.evented = false;
+                obj.hasControls = false;
+                obj.hasBorders = false;
+              });
 
-        // Fallback: show thumbnail as image if JSON is empty
-        if (design.thumbnailUrl) {
-          console.log("Loading thumbnail fallback...");
-          FabricImage.fromURL(design.thumbnailUrl, {
-            crossOrigin: "anonymous",
-          })
-            .then((img) => {
-              const scale = Math.min(width / img.width, height / img.height);
-              img.scale(scale);
+              // Block selections after load
+              canvas.on("selection:created", () =>
+                canvas.discardActiveObject()
+              );
+              canvas.on("selection:updated", () =>
+                canvas.discardActiveObject()
+              );
 
-              canvas.add(img);
-              canvas.centerObject(img);
-              img.selectable = false;
-              img.evented = false;
+              // Force render
               canvas.requestRenderAll();
-              console.log("✓ Thumbnail loaded as fallback");
+              console.log("✓ Design loaded successfully!");
             })
             .catch((err) => {
-              console.error("Failed to load thumbnail:", err);
+              console.error("Error loading JSON:", err);
+              // Try fallback on error
+              loadThumbnailFallback(canvas, width, height);
             });
         } else {
-          console.error("No thumbnail available for fallback");
+          console.warn("No objects in design JSON");
+          loadThumbnailFallback(canvas, width, height);
         }
+      } catch (err) {
+        console.error("Error loading design JSON:", err);
+        setError("Failed to render design");
       }
-    } catch (err) {
-      console.error("Error loading design JSON:", err);
-      setError("Failed to render design");
-    }
-  }, [fabricCanvasRef.current, design]);
+    };
+
+    const loadThumbnailFallback = (canvas, width, height) => {
+      if (design.thumbnailUrl) {
+        console.log("Loading thumbnail fallback...");
+        FabricImage.fromURL(design.thumbnailUrl, {
+          crossOrigin: "anonymous",
+        })
+          .then((img) => {
+            const scale = Math.min(width / img.width, height / img.height);
+            img.scale(scale);
+
+            canvas.add(img);
+            canvas.centerObject(img);
+            img.selectable = false;
+            img.evented = false;
+            canvas.requestRenderAll();
+            console.log("✓ Thumbnail loaded as fallback");
+          })
+          .catch((err) => {
+            console.error("Failed to load thumbnail:", err);
+            // Show error message on canvas
+            canvas.add(
+              new Text("Failed to load design", {
+                left: width / 2,
+                top: height / 2,
+                originX: "center",
+                originY: "center",
+                fontSize: 20,
+                fill: "#ef4444",
+              })
+            );
+            canvas.renderAll();
+          });
+      } else {
+        console.error("No thumbnail available for fallback");
+      }
+    };
+
+    loadDesign();
+  }, [canvasReady, fabricCanvasRef.current, design]);
 
   // Export as PNG
   const handleExport = () => {
